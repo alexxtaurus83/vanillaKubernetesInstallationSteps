@@ -1,0 +1,49 @@
+# Exec into the Vault Pod
+kubectl exec -it -n vault vault-0 -- /bin/sh
+
+# --- All subsequent commands are run inside the pod's shell ---
+
+# Initialize and Unseal
+vault operator init -key-shares=1 -key-threshold=1 -format=json > /tmp/init-keys.json
+cat /tmp/init-keys.json | jq -r ".unseal_keys_b64[]"
+cat /tmp/init-keys.json | jq -r ".root_token"
+vault operator unseal <YOUR_UNSEAL_KEY>
+
+# Login and Configure PKI
+vault login <YOUR_ROOT_TOKEN>
+vault secrets enable pki
+vault secrets tune -max-lease-ttl=8760h pki
+vault write -field=certificate pki/root/generate/internal \
+    common_name="svhome.net" \
+    organization="SvLab Home" \
+    country="US" \
+    ou="SVHOME PKI" \
+    key_bits=4096 \
+    issuer_name="root-2024" \
+    ttl=87600h > /tmp/root_2024_ca.crt
+vault write pki/config/urls \
+    issuing_certificates="http://vault.vault.svc.cluster.local:8200/v1/pki/ca" \
+    crl_distribution_points="http://vault.vault.svc.cluster.local:8200/v1/pki/crl"
+vault write pki/roles/svhome-dot-net \
+    issuer_ref="$(vault read -field=default pki/config/issuers)" \
+    allowed_domains=svhome.net \
+    allow_subdomains=true \
+    max_ttl=8760h \
+    require_cn=false
+
+# Configure Auth for Cert-Manager
+vault policy write pki - <<EOF
+path "pki/sign/svhome-dot-net"    { capabilities = ["create", "update"] }
+path "pki/issue/svhome-dot-net"   { capabilities = ["create"] }
+EOF
+vault auth enable kubernetes
+vault write auth/kubernetes/config \
+    kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"
+vault write auth/kubernetes/role/issuer \
+    bound_service_account_names=issuer \
+    bound_service_account_namespaces=cert-manager \
+    policies=pki \
+    ttl=20m
+
+# Exit the pod's shell
+exit
