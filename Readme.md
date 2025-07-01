@@ -98,3 +98,28 @@ Run the `install-otel-operator.sh` script to enable automatic instrumentation of
 
 ### 22. Test with the OpenTelemetry Demo (Master Node)
 Run the `install-otel-demo.sh` script to deploy a sample microservices application. This will generate data you can explore in the SigNoz UI to verify your observability stack is working correctly.
+
+
+## Part 5: Cluster Upgrades
+
+This part provides a detailed guide on how to perform a rolling upgrade of your Kubernetes cluster, ensuring minimal downtime and a smooth transition to newer versions. This process involves upgrading components on the master node first, followed by each worker node sequentially.
+
+### 23. Prepare Kubernetes Repositories (All Nodes)
+Before starting the upgrade, ensure that the APT repositories for the target Kubernetes versions are configured on all nodes. This allows `apt` to find the necessary packages.
+Run the `setup-k8s-repos.sh` script on all master and worker nodes.
+
+### 24. Upgrade Master Node Components (Master Node Only)
+Upgrade the control plane components on the master node. This process will iteratively upgrade `kubeadm`, then apply the cluster upgrade, and finally upgrade `kubelet` and `kubectl`.
+Run the `upgrade-master-node.sh` script on your master node (`k8smaster.svhome.net`).
+
+### 25. Upgrade Worker Nodes Sequentially (Master and Worker Nodes)
+Upgrade each worker node one by one to maintain cluster availability. For each worker node:
+
+1.  **Drain the Worker Node (Master Node)**: Remove all running pods from the worker node to prepare it for maintenance.
+    Run `manage-worker-drain-uncordon.sh drain k8sworker01.svhome.net` (replace `k8sworker01.svhome.net` with the actual worker hostname).
+2.  **Upgrade Worker Components (Worker Node)**: Install the new versions of `kubelet` and `kubectl` on the drained worker node.
+    SSH into the drained worker node (e.g., `k8sworker01.svhome.net`) and run the `upgrade-worker-node.sh k8sworker01.svhome.net` script.
+3.  **Uncordon the Worker Node (Master Node)**: Mark the worker node as schedulable again, allowing new pods to be placed on it.
+    Run `manage-worker-drain-uncordon.sh uncordon k8sworker01.svhome.net` (replace `k8sworker01.svhome.net` with the actual worker hostname).
+
+Repeat this process for each worker node in your cluster (e.g., `k8sworker02.svhome.net`, `k8sworker03.svhome.net`, etc.).
